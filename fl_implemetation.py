@@ -1,8 +1,6 @@
 import numpy as np
 import random
-import cv2
 import os
-from imutils import paths
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split
@@ -10,6 +8,7 @@ from sklearn.utils import shuffle
 from sklearn.metrics import accuracy_score
 
 import tensorflow as tf
+from tensorflow import keras
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.layers import MaxPooling2D
@@ -20,28 +19,25 @@ from tensorflow.keras.optimizers import SGD
 from tensorflow.keras import backend as K
 
 from fl_mnist_implementation_tutorial_utils import *
+from tensorflow.keras.datasets import mnist
+import matplotlib.pyplot as plt
+from matplotlib.pylab import rcParams
+rcParams['figure.figsize']=10,8
 
-#declear path to your mnist data folder
-img_path = '/path/to/your/training/dataset'
+(x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
 
-#get the path list using the path object
-image_paths = list(paths.list_images(img_path))
+# train set / data 
+x_train = x_train.reshape(-1, 28*28)
+x_train = x_train.astype('float32') / 255
+x_test = x_test.reshape(-1, 28*28)
+x_test = x_test.astype('float32') / 255
 
-#apply our function
-image_list, label_list = load(image_paths, verbose=10000)
-
-#binarize the labels
-lb = LabelBinarizer()
-label_list = lb.fit_transform(label_list)
-
-#split data into training and test set
-X_train, X_test, y_train, y_test = train_test_split(image_list, 
-                                                    label_list, 
-                                                    test_size=0.1, 
-                                                    random_state=42)
+# train set / target 
+y_train = tf.keras.utils.to_categorical(y_train , num_classes=10)
+y_test = tf.keras.utils.to_categorical(y_test , num_classes=10)
 
 #create clients
-clients = create_clients(X_train, y_train, num_clients=10, initial='client')
+clients = create_clients(x_train, y_train, num_clients=100, initial='client')
 
 #process and batch the training data for each client
 clients_batched = dict()
@@ -49,23 +45,26 @@ for (client_name, data) in clients.items():
     clients_batched[client_name] = batch_data(data)
     
 #process and batch the test set  
-test_batched = tf.data.Dataset.from_tensor_slices((X_test, y_test)).batch(len(y_test))
+test_batched = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(len(y_test))
 
 comms_round = 100
-    
+
 #create optimizer
-lr = 0.01 
+#lr = 0.01
+lr = 0.1 
 loss='categorical_crossentropy'
 metrics = ['accuracy']
 optimizer = SGD(lr=lr, 
                 decay=lr / comms_round, 
                 momentum=0.9
-               ) 
+               )
 
 #initialize global model
 smlp_global = SimpleMLP()
 global_model = smlp_global.build(784, 10)
-        
+
+store_global_acc = []
+ 
 #commence global training loop
 for comm_round in range(comms_round):
             
@@ -77,7 +76,7 @@ for comm_round in range(comms_round):
 
     #randomize client data - using keys
     client_names= list(clients_batched.keys())
-    random.shuffle(client_names)
+    client_names = random.choices(client_names, k=10)
     
     #loop through each client and create new local model
     for client in client_names:
@@ -91,10 +90,11 @@ for comm_round in range(comms_round):
         local_model.set_weights(global_weights)
         
         #fit local model with client's data
-        local_model.fit(clients_batched[client], epochs=1, verbose=0)
+        local_model.fit(clients_batched[client], epochs=2, verbose=0)
         
         #scale the model weights and add to list
-        scaling_factor = weight_scalling_factor(clients_batched, client)
+        #scaling_factor = weight_scalling_factor(clients_batched, client)
+        scaling_factor = 0.1
         scaled_weights = scale_model_weights(local_model.get_weights(), scaling_factor)
         scaled_local_weight_list.append(scaled_weights)
         
@@ -109,18 +109,10 @@ for comm_round in range(comms_round):
 
     #test global model and print out metrics after each communications round
     for(X_test, Y_test) in test_batched:
-        global_acc, global_loss = test_model(X_test, Y_test, global_model, comm_round)SGD_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).shuffle(len(y_train)).batch(320)
-smlp_SGD = SimpleMLP()
-SGD_model = smlp_SGD.build(784, 10) 
+        global_acc, global_loss = test_model(X_test, Y_test, global_model, comm_round)
+        store_global_acc.append(global_acc)
 
-SGD_model.compile(loss=loss, 
-              optimizer=optimizer, 
-              metrics=metrics)
-
-# fit the SGD training data to model
-_ = SGD_model.fit(SGD_dataset, epochs=100, verbose=0)
-
-#test the SGD global model and print out metrics
-for(X_test, Y_test) in test_batched:
-        SGD_acc, SGD_loss = test_model(X_test, Y_test, SGD_model, 1)
-
+plt.plot(store_global_acc)
+plt.xlabel("Communication round")
+plt.ylabel("Loss")
+plt.show()

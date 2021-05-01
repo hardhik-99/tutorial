@@ -1,9 +1,6 @@
-
 import numpy as np
 import random
-import cv2
 import os
-from imutils import paths
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split
@@ -11,6 +8,7 @@ from sklearn.utils import shuffle
 from sklearn.metrics import accuracy_score
 
 import tensorflow as tf
+from tensorflow import keras
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.layers import MaxPooling2D
@@ -19,29 +17,6 @@ from tensorflow.keras.layers import Flatten
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.optimizers import SGD
 from tensorflow.keras import backend as K
-
-
-
-def load(paths, verbose=-1):
-    '''expects images for each class in seperate dir, 
-    e.g all digits in 0 class in the directory named 0 '''
-    data = list()
-    labels = list()
-    # loop over the input images
-    for (i, imgpath) in enumerate(paths):
-        # load the image and extract the class labels
-        im_gray = cv2.imread(imgpath, cv2.IMREAD_GRAYSCALE)
-        image = np.array(im_gray).flatten()
-        label = imgpath.split(os.path.sep)[-2]
-        # scale the image to [0, 1] and add to list
-        data.append(image/255)
-        labels.append(label)
-        # show an update every `verbose` images
-        if verbose > 0 and i > 0 and (i + 1) % verbose == 0:
-            print("[INFO] processed {}/{}".format(i + 1, len(paths)))
-    # return a tuple of the data and labels
-    return data, labels
-
 
 def create_clients(image_list, label_list, num_clients=10, initial='clients'):
     ''' return: a dictionary with keys clients' names and value as 
@@ -130,9 +105,8 @@ def sum_scaled_weights(scaled_weight_list):
     return avg_grad
 
 
-def test_model(X_test, Y_test,  model, comm_round):
+def test_model(X_test, Y_test, model, comm_round):
     cce = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
-    #logits = model.predict(X_test, batch_size=100)
     logits = model.predict(X_test)
     loss = cce(Y_test, logits)
     acc = accuracy_score(tf.argmax(logits, axis=1), tf.argmax(Y_test, axis=1))
